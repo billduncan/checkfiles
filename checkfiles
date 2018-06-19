@@ -1,0 +1,205 @@
+#!/bin/bash
+
+usage () {
+cat <<- EoM
+# @(#) checkfiles - check files and update .md5 file at base of directory
+# @(#) \$Id: checkfiles,v 1.29 2018/01/25 00:20:00 bduncan Exp bduncan $
+#
+# Created:  bduncan@beachnet.org, Sun Jan  7 17:17:38 EST 2018
+#
+# Description:
+#   - create, maintain and check files against an .md5 file in base of
+#     specified directories.
+#   - if no .md5 file exists, create one
+#   - check files against existing .md5 file and report differences.
+#   - a log kept as well in .md5.log
+#   - should be built to be able to run from crontab, for now, send unwanted
+#     stderr output to /dev/null ..
+#
+# It Finds and Reports on:
+#   - added files
+#   - changed files
+#   - deleted files
+#   - and makes suggestions about it being moved if it finds files with same md5
+#
+# Use for:
+#   - comparing after a period of time to check for changes
+#   - compare directories that are supposed to be equivalent (eg. across systems,
+#     backups, twins etc.)
+#
+# Usage:
+#   `basename $0` [-options] [directories]
+#   options:
+#     -h     print this help
+#     -q     quiet (for running from crontab)  default=[$quiet]
+#     -n n   nice value                        default=[$nice]
+#
+#   - just run with subdirectores to check.  It accepts multiple.
+#   - check for changes in the .md5.log file after being run.
+#   - since the .md5 files are in sorted path/filename order, you can verify
+#     between two versions of the file (say, across systems) simply be doing
+#     an md5sum of the .md5 files themselves!
+#   - note that it also sends events to syslog..
+#   - the .md5 and .md5.log files are made immutable with chattr, to prevent
+#     you from overwriting if you're using rsync across systems for example.
+#     (Try excluding with the rsync --exclude options.)
+#
+###############################################################################
+EoM
+  exit 2
+}
+
+###############################################################################
+# defaults
+###############################################################################
+
+TMPDIR=${TMPDIR:-/tmp}                               ; export TMPDIR
+PROGNAME="`basename $0`"                             ; export PROGNAME
+TEMPFILE=$TMPDIR/$PROGNAME.$$                        ; export TEMPFILE
+TIMESTAMP="`date +%Y.%m.%d-%H:%M:%S`"                ; export TIMESTAMP
+REVISION="`echo '$Revision: 1.29 $'|cut -d\  -f2`"   ; export REVISION
+quiet=false                                          ; export quiet
+nice=10                                              ; export nice
+
+renice $nice $$                                      # be nice
+###############################################################################
+# functions
+###############################################################################
+
+die () {
+  echo "ERROR:  $*"
+  echo "aborting."
+  logger "$PROGNAME: ABORTING CWD=$PWD ERROR: $*"
+  exit 1
+}
+
+
+which chattr > /dev/null 2>&1 || chattr () { : N/A ; }  # macos does not have it
+
+ro () {
+  for f in .md5* ; do
+    # we might be part of the cleanup and not in the directory
+    if [ -e "$f" ] ; then
+      # make sure we can chmod it
+      chattr -i $f        || die "chattr -i $f"
+      chmod 444 $f        || die "chmod 444 $f"
+      chattr +i $f        || die "chattr +i $f"
+    fi
+  done
+}
+
+rw () {
+  for f in .md5* ; do
+    chattr -i $f        || die "chattr -i $f"
+    chmod 644 $f        || die "chmod 644 $f"
+  done
+}
+
+
+dothechecks () {
+  # $1==old $2==new
+  [ -r "$1" ] || die "ShouldNeverHappen:  Cannot read $1"
+  [ -r "$2" ] || die "ShouldNeverHappen:  Cannot read $2"
+  awk '
+  BEGIN {
+    printf "# '$TIMESTAMP' Start '$PROGNAME' '$REVISION'\n"
+  }
+  !filename            { filename=FILENAME; fn=1 }  # on the first file, the old one
+  filename != FILENAME { filename=FILENAME; fn=2 }  # second file
+  {
+    md5=$1
+    sub(/^[^ ]*  */,"")  # remove first field, rest (which might include spaces) is filename
+    file=$0
+  }
+  fn == 1 {   # just gather them up
+    file2md5[ file ] = md5
+  }
+  fn == 2 {   # do the checks
+    md5files[md5] = md5files[md5] ":" file
+
+    if (file in file2md5) {
+      if (file2md5[file] != md5) {
+        printf "Changed:  %s %s %s\n", file2md5[file], md5, file
+        Changed++
+      }
+      delete file2md5[file]
+    }
+    else {    # new file
+      printf "NewFile:  %s %s\n", md5, file
+      NewFile++
+    }
+  }
+  END {  # handle Missing.."
+    for (i in file2md5) {
+      printf "Missing:  %s %s   %s\n", file2md5[i], i, "MOVED" md5files[file2md5[i]]
+      Missing++
+    }
+    printf "# '$TIMESTAMP' Missing=%d Changed=%d NewFile=%d\n",Missing,Changed,NewFile
+  }
+  ' $1 $2
+}
+
+###############################################################################
+# Options/Sanity
+###############################################################################
+logger "$PROGNAME: CWD=$PWD Args: $*"
+
+args=`getopt hqn: $*` || exit 2
+set -- $args
+
+while :
+do
+  case "$1" in
+    -q)      $quiet       && quiet=false     || quiet=true     ;;
+    -n)      renice $2 $$ ; shift            ;;
+    -h)      usage                           ;;
+    --)      shift; break                    ;;
+    *)       usage "Unknown Parameter [$1]"  ;;
+  esac
+  shift
+done
+
+[ 0 -eq "`id -u`" ] || die "must be root"
+trap 'rm -f $TEMPFILE; ro' 0    # make .md5 files immutable again
+
+###############################################################################
+# main
+###############################################################################
+
+while [ -n "$1" ] ; do
+  [ -d "$1" ] || die "directory $1 does not exist."
+  cd "$1"     || die "cannot change to directory $1"
+  logger "$PROGNAME: Starting  $PWD"
+
+  find . -type f                  |
+  egrep -v '/\.(md5|DS_Store)'    |
+  sort                            |
+  sed 's/.*/"&"/'                 |
+  xargs md5sum                    |
+(
+  $quiet                          &&
+    cat > $TEMPFILE               ||
+    tee $TEMPFILE
+)
+
+
+  if [ -e .md5 ] ; then
+    # check files and add new ones
+    rw
+    dothechecks .md5 $TEMPFILE >> .md5.log
+    mv .md5 .md5.prev   || die "Cannot move .md5 to .md5.prev"
+# else
+#   new file, nothing to compare
+  fi
+
+  mv $TEMPFILE .md5   || die "Cannot move $TEMPFILE to .md5"
+  ro
+
+  [ -f .md5.log ] &&
+  logger "$PROGNAME: `tail -1 .md5.log|awk '{print "'$PWD'",$3,$4,$5}'`"  # log the summary line and where
+  cd - > /dev/null 2>&1  # go back from whence you came, in case relative directories
+  shift
+done
+
+logger "$PROGNAME: Finished."
+

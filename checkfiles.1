@@ -1,0 +1,68 @@
+'\" t
+.\"     Title: checkfiles
+.\"    Author: bill duncan
+.\"      Date: 06/19/2018
+.\"  Language: English
+.\"
+.TH "CHECKFILES" "1" "06/19/2018" "checkfiles 1\&.29" "checkfiles Manual"
+.\" -----------------------------------------------------------------
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.\" -----------------------------------------------------------------
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.\" -----------------------------------------------------------------
+.\" * MAIN CONTENT STARTS HERE *
+.\" -----------------------------------------------------------------
+.SH "NAME"
+checkfiles \- create and maintain a list of files and checksums
+.SH "SYNOPSIS"
+.sp
+.nf
+\fIcheckfiles\fR [\-options] [\-directories..]
+.fi
+.sp
+.SH "DESCRIPTION"
+.sp
+Creates and maintains a list of checksums for the files in the directories specified.
+Changed files, additions, deletions and possible file moves are recorded in another log file.
+The command needs to be run as root.  On Linux systems, the files maintained by this command
+will become "\fIimmutable\fR" to retain the information across directory syncs. (MacOS does
+not have a similar feature afaik, and windows, well, you're on your own..)
+.sp
+.SH "OPTIONS"
+.sp
+\fB\-h\fR
+.RS 3
+Display help for usage of this command and exit.
+.RE
+\fB\-q\fR
+.RS 3
+quiet option, do not display running commentary (which gets logged anyway).
+.RE
+\fB\-n nice-value\fR
+.RS 3
+Renice the process, default is 10.
+.RE
+.sp
+.SH "NOTES"
+On directories which \fIshould\fR be equal, the .md5 files should be equal as well.
+Simply do an \fImd5sum .md5\fR on each file for directories that should be equal.
+If they are, the md5 sums will be equal as well (they are sorted).
+.SH "FILES"
+\fB\&.md5\fR
+.RS 3
+The main file list and md5 sum file. Created if not present and used for comparisons
+on subsequent runs. Replaced with the new list if any changes were made.
+.RE
+\fB\&.md5.prev\fR
+.RS 3
+The previous \&.md5 file, prior to the current run.
+.RE
+\fB\&.md5.log\fR
+.RS 3
+The log file containing information on the run.
+.RE
+
