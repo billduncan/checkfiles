@@ -3,7 +3,7 @@
 usage () {
 cat <<- EoM
 # @(#) checkfiles - check files and update .md5 file at base of directory
-# @(#) \$Id: checkfiles,v 1.29 2018/01/25 00:20:00 bduncan Exp bduncan $
+# @(#) \$Id: checkfiles,v 1.30 2018/01/25 04:28:22 bduncan Exp bduncan $
 #
 # Created:  bduncan@beachnet.org, Sun Jan  7 17:17:38 EST 2018
 #
@@ -57,7 +57,7 @@ TMPDIR=${TMPDIR:-/tmp}                               ; export TMPDIR
 PROGNAME="`basename $0`"                             ; export PROGNAME
 TEMPFILE=$TMPDIR/$PROGNAME.$$                        ; export TEMPFILE
 TIMESTAMP="`date +%Y.%m.%d-%H:%M:%S`"                ; export TIMESTAMP
-REVISION="`echo '$Revision: 1.29 $'|cut -d\  -f2`"   ; export REVISION
+REVISION="`echo '$Revision: 1.30 $'|cut -d\  -f2`"   ; export REVISION
 quiet=false                                          ; export quiet
 nice=10                                              ; export nice
 
@@ -131,7 +131,10 @@ dothechecks () {
   }
   END {  # handle Missing.."
     for (i in file2md5) {
-      printf "Missing:  %s %s   %s\n", file2md5[i], i, "MOVED" md5files[file2md5[i]]
+      if (file2md5[i] in md5files)
+        printf "Missing:  %s %s   %s\n", file2md5[i], i, "MOVED? " md5files[file2md5[i]]
+      else
+        printf "Missing:  %s %s\n", file2md5[i], i
       Missing++
     }
     printf "# '$TIMESTAMP' Missing=%d Changed=%d NewFile=%d\n",Missing,Changed,NewFile
