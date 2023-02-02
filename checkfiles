@@ -3,7 +3,7 @@
 usage () {
 cat <<- EoM
 # @(#) checkfiles - check files and update .md5 file at base of directory
-# @(#) \$Id: checkfiles,v 1.30 2018/01/25 04:28:22 bduncan Exp bduncan $
+# @(#) \$Id: checkfiles,v 1.32 2023/02/01 23:59:19 bduncan Exp bduncan $
 #
 # Created:  bduncan@beachnet.org, Sun Jan  7 17:17:38 EST 2018
 #
@@ -28,11 +28,13 @@ cat <<- EoM
 #     backups, twins etc.)
 #
 # Usage:
-#   `basename $0` [-options] [directories]
+#   `basename $0` [-options] directory [directory..]
 #   options:
 #     -h     print this help
-#     -q     quiet (for running from crontab)  default=[$quiet]
-#     -n n   nice value                        default=[$nice]
+#     -q     quiet (for running from crontab)  [$quiet]
+#     -n n   nice value                        [$nice]
+#     -X     eXclude regex                     [$exclude]
+#     -V     Version and quit
 #
 #   - just run with subdirectores to check.  It accepts multiple.
 #   - check for changes in the .md5.log file after being run.
@@ -43,6 +45,7 @@ cat <<- EoM
 #   - the .md5 and .md5.log files are made immutable with chattr, to prevent
 #     you from overwriting if you're using rsync across systems for example.
 #     (Try excluding with the rsync --exclude options.)
+#   - Internal variables may be set from this file:  $rcfile
 #
 ###############################################################################
 EoM
@@ -53,15 +56,19 @@ EoM
 # defaults
 ###############################################################################
 
-TMPDIR=${TMPDIR:-/tmp}                               ; export TMPDIR
-PROGNAME="`basename $0`"                             ; export PROGNAME
-TEMPFILE=$TMPDIR/$PROGNAME.$$                        ; export TEMPFILE
-TIMESTAMP="`date +%Y.%m.%d-%H:%M:%S`"                ; export TIMESTAMP
-REVISION="`echo '$Revision: 1.30 $'|cut -d\  -f2`"   ; export REVISION
-quiet=false                                          ; export quiet
-nice=10                                              ; export nice
+export TMPDIR=${TMPDIR:-/tmp}
+export PROGNAME="`basename $0`"
+export TEMPFILE=$TMPDIR/$PROGNAME.$$
+export TIMESTAMP="`date +%Y.%m.%d-%H:%M:%S`"
+export REVISION="`echo '$Revision: 1.32 $'|cut -d\  -f2`"
+export quiet=false
+export nice=10
+export exclude
+export rcfile=$HOME/.${PROGNAME}rc
 
-renice $nice $$                                      # be nice
+renice $nice $$                             # be nice
+
+[ -r "$rcfile" ] && source "$rcfile"        # root user defaults
 ###############################################################################
 # functions
 ###############################################################################
@@ -147,7 +154,7 @@ dothechecks () {
 ###############################################################################
 logger "$PROGNAME: CWD=$PWD Args: $*"
 
-args=`getopt hqn: $*` || exit 2
+args=`getopt hqn:X:V $*` || exit 2
 set -- $args
 
 while :
@@ -155,6 +162,8 @@ do
   case "$1" in
     -q)      $quiet       && quiet=false     || quiet=true     ;;
     -n)      renice $2 $$ ; shift            ;;
+    -X)      exclude="$2" ; shift            ;;
+    -V)      echo "$REVISION" ; exit 2       ;;
     -h)      usage                           ;;
     --)      shift; break                    ;;
     *)       usage "Unknown Parameter [$1]"  ;;
@@ -176,6 +185,11 @@ while [ -n "$1" ] ; do
 
   find . -type f                  |
   egrep -v '/\.(md5|DS_Store)'    |
+  (
+    [ -n "$exclude" ]             &&
+      egrep -v "$exclude"         ||
+      cat
+  )                               |
   sort                            |
   sed 's/.*/"&"/'                 |
   xargs md5sum                    |
